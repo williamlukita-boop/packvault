@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PackVault Auto</title>
+<link href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500;600;700&family=Barlow+Condensed:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #080808; --s1: #0f0f0f; --s2: #161616; --s3: #1e1e1e;
+  --border: #222; --border2: #2c2c2c;
+  --green: #00e676; --green-bg: rgba(0,230,118,0.07); --green-border: rgba(0,230,118,0.2);
+  --red: #ff3d57; --red-bg: rgba(255,61,87,0.08); --red-border: rgba(255,61,87,0.25);
+  --yellow: #ffd600; --yellow-bg: rgba(255,214,0,0.07);
+  --blue: #40c4ff; --blue-bg: rgba(64,196,255,0.08);
+  --text: #f0f0f0; --muted: #3a3a3a; --muted2: #666; --muted3: #999;
+  --mono: 'Azeret Mono', monospace; --display: 'Barlow Condensed', sans-serif;
+}
+html, body { height: 100%; overflow: hidden; }
+body { background: var(--bg); color: var(--text); font-family: var(--mono); }
+
+/* ── Shell ── */
+.shell { display: grid; grid-template-rows: 48px 1fr; height: 100vh; }
+.main  { display: grid; grid-template-columns: 1fr 340px; overflow: hidden; }
+
+/* ── Topbar ── */
+.topbar {
+  background: var(--s1); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; padding: 0 18px;
+}
+.brand { font-family: var(--display); font-size: 18px; font-weight: 900; letter-spacing: 2px; }
+.brand em { color: var(--green); font-style: normal; }
+.brand small { color: var(--muted2); font-weight: 400; font-size: 12px; letter-spacing: 1px; margin-left: 6px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  border-radius: 20px; padding: 5px 13px; font-size: 11px; letter-spacing: 1px; font-weight: 600;
+  border: 1px solid var(--border2); background: var(--s2); color: var(--muted3); transition: all 0.3s;
+}
+.pill.waiting { border-color: rgba(255,214,0,0.3); color: var(--yellow); background: var(--yellow-bg); }
+.pill.packing { border-color: var(--green-border); color: var(--green); background: var(--green-bg); }
+.pdot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pdot.blink { animation: blink 1s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.15} }
+
+/* Auth button */
+.btn-auth {
+  font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 1px;
+  border-radius: 7px; cursor: pointer; padding: 7px 14px;
+  display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s;
+  background: var(--green); color: #000; border: none;
+}
+.btn-auth:hover { filter: brightness(1.1); }
+.btn-auth.signed-in { background: var(--s3); color: var(--muted3); border: 1px solid var(--border2); }
+.btn-auth.signed-in:hover { border-color: var(--red); color: var(--red); }
+
+/* ── Camera ── */
+.cam-wrap { position: relative; background: #000; display: flex; flex-direction: column; overflow: hidden; }
+.video-area { position: relative; flex: 1; overflow: hidden; }
+video { width: 100%; height: 100%; object-fit: cover; display: block; }
+canvas#snap { display: none; }
+
+/* Scan frame */
+.scan-frame { position: absolute; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: center; }
+.frame-box { width: 70%; max-width: 480px; height: 140px; position: relative; transition: all 0.3s; }
+.frame-box::before, .frame-box::after, .frame-box .c1, .frame-box .c2 {
+  content: ''; position: absolute; width: 32px; height: 32px; border-color: var(--muted2); border-style: solid;
+}
+.frame-box::before { top:0;left:0;border-width:2px 0 0 2px; }
+.frame-box::after  { top:0;right:0;border-width:2px 2px 0 0; }
+.frame-box .c1 { bottom:0;left:0;border-width:0 0 2px 2px; }
+.frame-box .c2 { bottom:0;right:0;border-width:0 2px 2px 0; }
+.frame-box.start-ready::before,.frame-box.start-ready::after,.frame-box.start-ready .c1,.frame-box.start-ready .c2 { border-color:var(--yellow); }
+.frame-box.got-start::before,.frame-box.got-start::after,.frame-box.got-start .c1,.frame-box.got-start .c2 { border-color:var(--green); }
+.frame-box.got-stop::before,.frame-box.got-stop::after,.frame-box.got-stop .c1,.frame-box.got-stop .c2 { border-color:var(--red); }
+
+.scan-line {
+  position: absolute; left:0; right:0; height:2px;
+  background: linear-gradient(90deg, transparent, var(--green), transparent);
+  box-shadow: 0 0 10px var(--green); top:50%; opacity:0;
+}
+.scan-line.running { opacity:1; animation:sweep 1.8s ease-in-out infinite; }
+.scan-line.yellow { background:linear-gradient(90deg,transparent,var(--yellow),transparent); box-shadow:0 0 10px var(--yellow); }
+@keyframes sweep { 0%{top:8%;opacity:0} 10%{opacity:1} 90%{opacity:1} 100%{top:92%;opacity:0} }
+
+.instr-strip {
+  position:absolute; bottom:0; left:0; right:0; padding:10px 16px;
+  background:linear-gradient(transparent,rgba(0,0,0,0.85));
+  display:flex; align-items:center; justify-content:center;
+}
+.instr { display:none; align-items:center; gap:10px; font-size:13px; font-weight:600; text-align:center; }
+.instr.visible { display:flex; }
+.instr-badge { border-radius:6px; padding:4px 10px; font-size:11px; font-weight:700; letter-spacing:1px; flex-shrink:0; }
+
+.flash { position:absolute; inset:0; opacity:0; pointer-events:none; transition:opacity 0.06s; }
+.flash.green-f { background:rgba(0,230,118,0.22); }
+.flash.red-f   { background:rgba(255,61,87,0.22); }
+.flash.lit { opacity:1; }
+
+.det-banner {
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  border-radius:10px; padding:12px 24px; font-size:15px; font-weight:700; letter-spacing:1px;
+  opacity:0; pointer-events:none; transition:opacity 0.12s; white-space:nowrap; text-align:center;
+}
+.det-banner.show { opacity:1; }
+.det-banner.start-banner { background:var(--green); color:#000; box-shadow:0 0 40px rgba(0,230,118,0.5); }
+.det-banner.stop-banner  { background:var(--red); color:#fff; box-shadow:0 0 40px rgba(255,61,87,0.5); }
+
+.hud-tl { position:absolute; top:12px; left:12px; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
+.hud-tr { position:absolute; top:12px; right:12px; pointer-events:none; }
+.hud-chip {
+  display:inline-flex; align-items:center; gap:6px;
+  background:rgba(0,0,0,0.72); backdrop-filter:blur(6px);
+  border:1px solid var(--border2); border-radius:6px;
+  padding:5px 10px; font-size:11px; color:var(--muted3); letter-spacing:0.5px;
+}
+.hud-chip.live { border-color:var(--green-border); color:var(--green); }
+.hud-chip.rec  { border-color:var(--red-border); color:var(--red); }
+.hud-chip.pack { border-color:var(--green-border); color:var(--green); }
+.timer { font-family:var(--display); font-size:38px; font-weight:900; color:#fff; letter-spacing:3px; text-shadow:0 2px 16px rgba(0,0,0,0.9); }
+
+/* Controls */
+.controls {
+  background:var(--s1); border-top:1px solid var(--border);
+  padding:10px 16px; display:flex; align-items:center; justify-content:center; gap:8px; height:52px; flex-shrink:0;
+}
+.btn {
+  font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:1px;
+  border:none; border-radius:7px; cursor:pointer; padding:8px 16px;
+  display:inline-flex; align-items:center; gap:6px; transition:all 0.15s; white-space:nowrap;
+}
+.btn:disabled { opacity:0.28; cursor:not-allowed; pointer-events:none; }
+.btn-start { background:var(--green); color:#000; }
+.btn-start:hover { filter:brightness(1.1); }
+.btn-stop  { background:var(--red); color:#fff; }
+.btn-stop:hover  { filter:brightness(1.1); }
+.btn-ghost { background:var(--s3); color:var(--muted3); border:1px solid var(--border2); }
+.btn-ghost:hover { border-color:var(--muted2); color:var(--text); }
+.sep { width:1px; height:26px; background:var(--border2); }
+
+/* ── Sidebar ── */
+.sidebar { background:var(--s1); border-left:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+
+/* Auth notice */
+.auth-notice {
+  margin:12px; border-radius:10px; padding:14px 16px;
+  border:1px solid rgba(255,214,0,0.3); background:var(--yellow-bg);
+  font-size:12px; color:var(--yellow); line-height:1.6; display:none;
+}
+.auth-notice.visible { display:block; }
+.auth-notice strong { display:block; font-size:13px; margin-bottom:4px; }
+
+/* Drive info */
+.drive-info {
+  margin:12px; border-radius:10px; padding:12px 16px;
+  border:1px solid var(--green-border); background:var(--green-bg);
+  display:none;
+}
+.drive-info.visible { display:flex; align-items:center; gap:10px; }
+.drive-avatar { width:32px; height:32px; border-radius:50%; background:var(--s3); border:1px solid var(--border2); overflow:hidden; display:grid; place-items:center; font-size:14px; flex-shrink:0; }
+.drive-name { font-size:12px; font-weight:600; color:var(--green); }
+.drive-sub  { font-size:10px; color:var(--muted3); margin-top:2px; }
+
+/* State card */
+.state-card {
+  margin:0 12px 12px; border-radius:10px; padding:14px 16px;
+  border:1px solid var(--border2); background:var(--s2); transition:all 0.3s; flex-shrink:0;
+}
+.state-card.waiting { border-color:rgba(255,214,0,0.3); background:var(--yellow-bg); }
+.state-card.packing { border-color:var(--green-border); background:var(--green-bg); }
+.state-label { font-size:10px; letter-spacing:2px; color:var(--muted2); text-transform:uppercase; margin-bottom:8px; }
+.state-main  { font-family:var(--display); font-size:22px; font-weight:900; line-height:1.15; margin-bottom:6px; }
+.state-sub   { font-size:11px; color:var(--muted3); line-height:1.5; }
+.state-id    { font-size:14px; font-weight:700; color:var(--green); margin-top:6px; word-break:break-all; display:none; }
+
+/* Stats */
+.stats { display:grid; grid-template-columns:1fr 1fr 1fr; border-top:1px solid var(--border); border-bottom:1px solid var(--border); flex-shrink:0; }
+.stat { padding:10px 8px; text-align:center; border-right:1px solid var(--border); }
+.stat:last-child { border-right:none; }
+.stat-n { font-family:var(--display); font-size:26px; font-weight:900; line-height:1; }
+.stat-n.g{color:var(--green)} .stat-n.b{color:var(--blue)} .stat-n.y{color:var(--yellow)}
+.stat-l { font-size:9px; color:var(--muted2); letter-spacing:0.5px; margin-top:2px; }
+
+/* Seg list */
+.seg-hdr { padding:10px 14px 6px; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; }
+.seg-hdr-title { font-size:10px; letter-spacing:2px; color:var(--muted2); text-transform:uppercase; }
+.seg-count-badge { background:var(--s3); border:1px solid var(--border2); border-radius:20px; padding:2px 9px; font-size:10px; color:var(--muted2); }
+
+.seg-list { flex:1; overflow-y:auto; padding:0 10px 10px; }
+.seg-list::-webkit-scrollbar { width:3px; }
+.seg-list::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
+
+.seg-card {
+  border-radius:8px; padding:10px 12px; margin-bottom:6px;
+  border:1px solid var(--border); background:var(--s2); transition:border-color 0.25s; animation:slideIn 0.2s ease;
+}
+@keyframes slideIn { from{opacity:0;transform:translateX(10px)} to{opacity:1;transform:none} }
+.seg-card.open      { border-color:var(--green-border); background:var(--green-bg); }
+.seg-card.pending   { }
+.seg-card.uploading { border-color:rgba(64,196,255,0.3); }
+.seg-card.done      { border-color:rgba(0,230,118,0.2); }
+.seg-card.error     { border-color:var(--red-border); background:var(--red-bg); }
+
+.sc-top { display:flex; justify-content:space-between; align-items:flex-start; gap:6px; margin-bottom:4px; }
+.sc-id  { font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sc-st  { font-size:10px; letter-spacing:0.5px; flex-shrink:0; }
+.sc-st.open{color:var(--green)} .sc-st.pending{color:var(--muted2)} .sc-st.uploading{color:var(--blue)} .sc-st.done{color:var(--green)} .sc-st.error{color:var(--red)}
+.sc-awb  { font-size:11px; color:var(--muted3); margin-bottom:6px; word-break:break-all; }
+.sc-meta { font-size:10px; color:var(--muted2); margin-bottom:6px; }
+.sc-dur  { color:var(--yellow); font-weight:600; }
+
+.sc-acts { display:flex; gap:5px; flex-wrap:wrap; }
+.sa {
+  font-size:10px; font-family:var(--mono); border-radius:5px; padding:3px 9px;
+  border:1px solid var(--border2); background:transparent; color:var(--muted2);
+  cursor:pointer; transition:all 0.15s; letter-spacing:0.5px; text-decoration:none; display:inline-block;
+}
+.sa:hover { border-color:var(--muted2); color:var(--text); }
+.sa.g { border-color:var(--green-border); color:var(--green); }
+.sa.g:hover { background:var(--green-bg); }
+
+.prog { height:2px; background:var(--border); border-radius:2px; margin-top:7px; display:none; }
+.prog.on { display:block; }
+.prog-fill { height:100%; background:var(--blue); border-radius:2px; width:0%; transition:width 0.35s; }
+.prog-label { font-size:9px; color:var(--blue); margin-top:3px; display:none; }
+.prog-label.on { display:block; }
+
+.empty-segs { text-align:center; padding:36px 16px; }
+.empty-segs .ei { font-size:32px; margin-bottom:10px; }
+.empty-segs p { font-size:11px; color:var(--muted2); line-height:1.65; }
+
+/* Upload bar */
+.upload-bar { padding:10px 12px; border-top:1px solid var(--border); display:none; flex-shrink:0; }
+.upload-bar.on { display:block; }
+.btn-upload-all {
+  width:100%; background:var(--blue); color:#000;
+  font-family:var(--mono); font-weight:700; font-size:11px; letter-spacing:1px;
+  border:none; border-radius:7px; padding:11px;
+  cursor:pointer; display:flex; align-items:center; justify-content:center; gap:7px; transition:filter 0.15s;
+}
+.btn-upload-all:hover { filter:brightness(1.1); }
+.btn-upload-all:disabled { opacity:0.3; cursor:not-allowed; }
+
+/* Config modal */
+.modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.92); display:none; place-items:center; z-index:50; backdrop-filter:blur(4px); }
+.modal-bg.open { display:grid; animation:fadein 0.18s; }
+@keyframes fadein { from{opacity:0} to{opacity:1} }
+.modal { background:var(--s1); border:1px solid var(--border2); border-radius:12px; padding:26px; width:min(460px,94vw); animation:popin 0.18s ease; }
+@keyframes popin { from{opacity:0;transform:scale(0.93)} to{opacity:1;transform:none} }
+.modal h2 { font-family:var(--display); font-size:22px; font-weight:900; margin-bottom:4px; }
+.modal-sub { font-size:11px; color:var(--muted2); margin-bottom:20px; line-height:1.6; }
+.mf label { display:block; font-size:10px; color:var(--muted2); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:6px; }
+.mf input {
+  width:100%; background:var(--s3); border:1px solid var(--border2); color:var(--text);
+  font-family:var(--mono); font-size:13px; font-weight:600; padding:10px 12px; border-radius:7px;
+  outline:none; transition:border-color 0.2s; margin-bottom:14px;
+}
+.mf input:focus { border-color:var(--green); }
+.mf .hint { font-size:10px; color:var(--muted2); margin-top:-10px; margin-bottom:14px; line-height:1.5; }
+.modal-acts { display:flex; gap:8px; margin-top:6px; }
+.btn-confirm { flex:1; background:var(--green); color:#000; font-family:var(--mono); font-weight:700; font-size:11px; letter-spacing:1px; border:none; border-radius:7px; padding:11px; cursor:pointer; }
+.btn-cancel  { background:var(--s3); color:var(--muted2); font-family:var(--mono); font-size:11px; border:1px solid var(--border2); border-radius:7px; padding:11px 16px; cursor:pointer; }
+
+/* Manual modal */
+.modal2-bg { position:fixed; inset:0; background:rgba(0,0,0,0.9); display:none; place-items:center; z-index:60; backdrop-filter:blur(4px); }
+.modal2-bg.open { display:grid; }
+
+/* Toast */
+.toast {
+  position:fixed; bottom:18px; right:14px;
+  background:var(--s1); border:1px solid var(--border2); border-radius:8px;
+  padding:10px 15px; font-size:11px; letter-spacing:0.3px;
+  display:flex; align-items:center; gap:8px;
+  transform:translateY(56px); opacity:0; transition:all 0.22s ease; z-index:100; max-width:300px;
+}
+.toast.show { transform:translateY(0); opacity:1; }
+.toast.ok  { border-color:var(--green-border); }
+.toast.err { border-color:var(--red-border); }
+.toast.info { border-color:rgba(64,196,255,0.3); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="brand">PACK<em>VAULT</em><small>/ AUTO</small></div>
+    <div class="topbar-right">
+      <div class="pill" id="statusPill"><div class="pdot" id="pdot"></div><span id="statusTxt">IDLE</span></div>
+      <button class="btn-auth" id="btnAuth" onclick="handleAuth()">🔑 Sign in with Google</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- Camera -->
+    <div class="cam-wrap">
+      <div class="video-area">
+        <video id="camFeed" autoplay muted playsinline></video>
+        <canvas id="snap"></canvas>
+        <div class="scan-frame">
+          <div class="frame-box" id="frameBox">
+            <div class="c1"></div><div class="c2"></div>
+            <div class="scan-line" id="scanLine"></div>
+          </div>
+        </div>
+        <div class="flash green-f" id="flashGreen"></div>
+        <div class="flash red-f"   id="flashRed"></div>
+        <div class="det-banner" id="detBanner"></div>
+        <div class="hud-tl">
+          <div class="hud-chip" id="camChip">NO CAMERA</div>
+          <div class="hud-chip rec" id="recChip" style="display:none;"><span class="pdot blink"></span>REC</div>
+          <div class="hud-chip pack" id="packChip" style="display:none;">▶ PACKING</div>
+        </div>
+        <div class="hud-tr"><div class="timer" id="timerHud">00:00:00</div></div>
+        <div class="instr-strip">
+          <div class="instr" id="instrIdle" style="color:var(--muted2);">Sign in with Google → press START</div>
+          <div class="instr" id="instrWait">
+            <span class="instr-badge" style="background:var(--yellow);color:#000;">STEP 1</span>
+            <span style="color:var(--yellow);">Scan CONTAINER label to start (BKI1-…)</span>
+          </div>
+          <div class="instr" id="instrPack">
+            <span class="instr-badge" style="background:var(--green);color:#000;">STEP 2</span>
+            <span style="color:var(--green);">Pack item → scan AWB label to finish (GK-11-…)</span>
+          </div>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="btn btn-start" id="btnStart" onclick="startSession()" disabled>▶ START SESSION</button>
+        <button class="btn btn-stop"  id="btnStop"  onclick="stopSession()"  disabled>■ END SESSION</button>
+        <div class="sep"></div>
+        <button class="btn btn-ghost" id="btnManual" onclick="openManual()" disabled>⌨ MANUAL</button>
+        <button class="btn btn-ghost" onclick="switchCam()">⟳ CAM</button>
+        <button class="btn btn-ghost" onclick="openConfig()">⚙ CONFIG</button>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+
+      <!-- Auth notice -->
+      <div class="auth-notice visible" id="authNotice">
+        <strong>🔑 Google Sign-in Required</strong>
+        Sign in with your company Google account to enable Drive uploads. Click the button in the top right.
+      </div>
+
+      <!-- Drive user info -->
+      <div class="drive-info" id="driveInfo">
+        <div class="drive-avatar" id="driveAvatar">👤</div>
+        <div>
+          <div class="drive-name" id="driveName">—</div>
+          <div class="drive-sub">Connected to Google Drive ✓</div>
+        </div>
+      </div>
+
+      <!-- State card -->
+      <div class="state-card" id="stateCard">
+        <div class="state-label" id="stateLabel">STATUS</div>
+        <div class="state-main"  id="stateMain">Not Recording</div>
+        <div class="state-sub"   id="stateSub">Sign in then press START.</div>
+        <div class="state-id"    id="stateId"></div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats">
+        <div class="stat"><div class="stat-n g" id="stTotal">0</div><div class="stat-l">PACKAGES</div></div>
+        <div class="stat"><div class="stat-n b" id="stDone">0</div><div class="stat-l">UPLOADED</div></div>
+        <div class="stat"><div class="stat-n y" id="stPending">0</div><div class="stat-l">PENDING</div></div>
+      </div>
+
+      <div class="seg-hdr">
+        <div class="seg-hdr-title">SEGMENTS</div>
+        <div class="seg-count-badge" id="segBadge">0</div>
+      </div>
+      <div class="seg-list" id="segList">
+        <div class="empty-segs">
+          <div class="ei">📦</div>
+          <p>No packages yet.<br><br>
+          <b style="color:var(--yellow)">Container label</b> (BKI1-…)<br>→ starts a segment<br><br>
+          <b style="color:var(--red)">AWB label</b> (GK-11-…)<br>→ seals & uploads segment</p>
+        </div>
+      </div>
+
+      <div class="upload-bar" id="uploadBar">
+        <button class="btn-upload-all" id="btnUploadAll" onclick="uploadAll()">☁ UPLOAD ALL TO GOOGLE DRIVE</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Config modal -->
+<div class="modal-bg" id="configModal">
+  <div class="modal">
+    <h2>⚙ Configuration</h2>
+    <div class="modal-sub">Enter your Google OAuth Client ID. This is created once in Google Cloud Console and shared across all packing stations.</div>
+    <div class="mf">
+      <label>Google OAuth Client ID</label>
+      <input type="text" id="cfgClientId" placeholder="123456789-abc.apps.googleusercontent.com">
+      <div class="hint">From Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID (Web application type)</div>
+      <label>Google Drive Folder Name</label>
+      <input type="text" id="cfgFolderName" placeholder="PackVault - Packing Videos" value="PackVault - Packing Videos">
+      <div class="hint">Videos will be saved inside this folder in the signed-in user's Drive.</div>
+      <label>Station Name (optional)</label>
+      <input type="text" id="cfgStation" placeholder="e.g. Station-A, Kramat-Jati-1">
+      <div class="hint">Appended to filenames so you know which station recorded each video.</div>
+    </div>
+    <div class="modal-acts">
+      <button class="btn-confirm" onclick="saveConfig()">✓ SAVE CONFIG</button>
+      <button class="btn-cancel" onclick="closeConfig()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manual modal -->
+<div class="modal2-bg" id="manualModal">
+  <div class="modal">
+    <h2>⌨ Manual Entry</h2>
+    <div class="modal-sub">Use when barcode can't be scanned (damaged label, glare, etc.)</div>
+    <div class="mf">
+      <label>Container ID (BKI1-…)</label>
+      <input type="text" id="mContainer" placeholder="BKI1-000003977">
+      <label>AWB Number (GK-11-…)</label>
+      <input type="text" id="mAwb" placeholder="GK-11-872089135">
+    </div>
+    <div class="modal-acts">
+      <button class="btn-confirm" onclick="confirmManual()">✓ CONFIRM</button>
+      <button class="btn-cancel"  onclick="closeManual()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span id="tIco"></span><span id="tMsg"></span></div>
+
+<!-- Google Identity Services -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<!-- ZXing barcode library (works on ALL browsers including Windows Chrome) -->
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
+
+<script>
+// ─── CONFIG (persisted in localStorage) ─────────────────────────────────────
+let cfg = {
+  clientId:   localStorage.getItem('pv_clientId')   || '',
+  folderName: localStorage.getItem('pv_folderName') || 'PackVault - Packing Videos',
+  station:    localStorage.getItem('pv_station')    || ''
+};
+
+// ─── AUTH STATE ──────────────────────────────────────────────────────────────
+let accessToken = null;
+let driveFolder = null; // { id, name }
+
+// ─── BARCODE PATTERNS ────────────────────────────────────────────────────────
+function classifyBarcode(raw) {
+  const v = raw.trim();
+  // Container labels: BKI1-XXXXXXXXX format
+  if (/^BKI\d*-/i.test(v)) return 'container';
+  // Can extend here: e.g. /^WHS-/i for other warehouse container codes
+  // AWB labels: GK-11-XXXXXXXXX (GoSend/Gojek)
+  if (/^GK-/i.test(v)) return 'awb';
+  // Other common AWB patterns (JNE, SiCepat, AnterAja, J&T, etc.)
+  if (/^(JP|JX|SCP|AAJ|GK|JNE|REG|OKE|YES)\d/i.test(v)) return 'awb';
+  if (/^\d{10,}$/.test(v)) return 'awb'; // long numeric = likely AWB
+  return 'unknown';
+}
+
+// ─── SESSION STATE ───────────────────────────────────────────────────────────
+let stream = null, cameras = [], camIdx = 0;
+let mediaRecorder = null, chunks = [];
+let sessionStart = null, timerIv = null;
+let detector = null, scanIv = null;
+let sessionActive = false;
+let packState = 'idle'; // idle | waiting_awb
+let currentContainer = null; // { id, startMs }
+let segments = [];
+let lastSeen = { code: null, ts: 0 };
+const COOLDOWN = 3000;
+
+let mimeType = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm','video/mp4']
+  .find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+
+// ─── CAMERA ──────────────────────────────────────────────────────────────────
+async function initCamera() {
+  try {
+    cameras = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: cameras[camIdx]?.deviceId, width:{ideal:1920}, height:{ideal:1080} },
+      audio: true
+    });
+    document.getElementById('camFeed').srcObject = stream;
+    setChip('camChip', '● LIVE', 'live');
+  } catch(e) { showToast('err','❌ Camera denied — allow access and reload.'); }
+}
+async function switchCam() {
+  if (cameras.length < 2) { showToast('ok','Only one camera.'); return; }
+  camIdx = (camIdx+1) % cameras.length;
+  if (stream) stream.getTracks().forEach(t=>t.stop());
+  await initCamera();
+}
+initCamera();
+
+// ─── CONFIG MODAL ────────────────────────────────────────────────────────────
+function openConfig() {
+  document.getElementById('cfgClientId').value   = cfg.clientId;
+  document.getElementById('cfgFolderName').value = cfg.folderName;
+  document.getElementById('cfgStation').value    = cfg.station;
+  document.getElementById('configModal').classList.add('open');
+}
+function closeConfig() { document.getElementById('configModal').classList.remove('open'); }
+function saveConfig() {
+  cfg.clientId   = document.getElementById('cfgClientId').value.trim();
+  cfg.folderName = document.getElementById('cfgFolderName').value.trim() || 'PackVault - Packing Videos';
+  cfg.station    = document.getElementById('cfgStation').value.trim();
+  localStorage.setItem('pv_clientId',   cfg.clientId);
+  localStorage.setItem('pv_folderName', cfg.folderName);
+  localStorage.setItem('pv_station',    cfg.station);
+  closeConfig();
+  showToast('ok','✓ Config saved');
+  if (cfg.clientId) initGoogleAuth();
+}
+
+// ─── GOOGLE AUTH ─────────────────────────────────────────────────────────────
+function initGoogleAuth() {
+  if (!cfg.clientId) { showToast('err','⚙ Set your Google Client ID in Config first.'); openConfig(); return; }
+  // Use Google Identity Services token model
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: cfg.clientId,
+    scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+    callback: onTokenReceived,
+  });
+  window._gClient = client;
+}
+
+function handleAuth() {
+  if (accessToken) {
+    // Sign out
+    google.accounts.oauth2.revoke(accessToken, () => {});
+    accessToken = null;
+    driveFolder = null;
+    updateAuthUI(false, null);
+    showToast('ok','Signed out');
+    return;
+  }
+  if (!cfg.clientId) { openConfig(); showToast('info','ℹ Set your Client ID in Config first'); return; }
+  if (!window._gClient) initGoogleAuth();
+  window._gClient.requestAccessToken();
+}
+
+async function onTokenReceived(response) {
+  if (response.error) { showToast('err','Auth error: ' + response.error); return; }
+  accessToken = response.access_token;
+  // Fetch user info
+  try {
+    const r = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', { headers: { Authorization: 'Bearer ' + accessToken } });
+    const u = await r.json();
+    updateAuthUI(true, u);
+    showToast('ok','✓ Signed in as ' + (u.name || u.email));
+    // Pre-create/find folder
+    driveFolder = await getOrCreateFolder(cfg.folderName);
+  } catch(e) { showToast('err','Could not fetch user info'); }
+}
+
+function updateAuthUI(isSignedIn, user) {
+  const btn = document.getElementById('btnAuth');
+  const notice = document.getElementById('authNotice');
+  const info = document.getElementById('driveInfo');
+
+  if (isSignedIn && user) {
+    btn.textContent = '✓ ' + (user.name || user.email);
+    btn.classList.add('signed-in');
+    notice.classList.remove('visible');
+    info.classList.add('visible');
+    document.getElementById('driveName').textContent = user.name || user.email;
+    if (user.picture) document.getElementById('driveAvatar').innerHTML = `<img src="${user.picture}" style="width:100%;height:100%;object-fit:cover;">`;
+    document.getElementById('btnStart').disabled = false;
+    setStateCard('idle','Ready to Record','','Press START, then scan a container label (BKI1-…) to begin.');
+  } else {
+    btn.textContent = '🔑 Sign in with Google';
+    btn.classList.remove('signed-in');
+    notice.classList.add('visible');
+    info.classList.remove('visible');
+    document.getElementById('btnStart').disabled = true;
+    setStateCard('idle','Not Recording','','Sign in with Google to enable uploads.');
+  }
+}
+
+// ─── GOOGLE DRIVE API ────────────────────────────────────────────────────────
+async function driveRequest(url, options = {}) {
+  if (!accessToken) throw new Error('Not authenticated');
+  const res = await fetch(url, {
+    ...options,
+    headers: { Authorization: 'Bearer ' + accessToken, ...( options.headers || {} ) }
+  });
+  if (res.status === 401) { accessToken = null; updateAuthUI(false,null); throw new Error('Token expired — please sign in again'); }
+  return res;
+}
+
+async function getOrCreateFolder(name) {
+  // Search for existing folder
+  const q = encodeURIComponent(`mimeType='application/vnd.google-apps.folder' and name='${name}' and trashed=false`);
+  const res = await driveRequest(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&pageSize=1`);
+  const data = await res.json();
+  if (data.files && data.files.length > 0) return data.files[0];
+  // Create folder
+  const cr = await driveRequest('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder' })
+  });
+  return await cr.json();
+}
+
+// Resumable upload — handles large video files reliably
+async function uploadToDrive(blob, fileName, onProgress) {
+  if (!accessToken) throw new Error('Not authenticated');
+  if (!driveFolder) driveFolder = await getOrCreateFolder(cfg.folderName);
+
+  const meta = { name: fileName, parents: [driveFolder.id] };
+  const mime = blob.type || mimeType;
+
+  // 1. Start resumable session
+  const initRes = await driveRequest(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink,name',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': blob.size },
+      body: JSON.stringify(meta)
+    }
+  );
+  const uploadUrl = initRes.headers.get('Location');
+  if (!uploadUrl) throw new Error('Could not start resumable upload');
+
+  // 2. Upload in chunks of 5MB
+  const CHUNK = 5 * 1024 * 1024;
+  let offset = 0;
+  let fileId = null, webViewLink = null;
+
+  while (offset < blob.size) {
+    const end = Math.min(offset + CHUNK, blob.size);
+    const chunk = blob.slice(offset, end);
+    const contentRange = `bytes ${offset}-${end-1}/${blob.size}`;
+
+    const chunkRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Range': contentRange, 'Content-Type': mime },
+      body: chunk
+    });
+
+    if (chunkRes.status === 308) {
+      // Incomplete — continue
+      const range = chunkRes.headers.get('Range');
+      offset = range ? parseInt(range.split('-')[1]) + 1 : end;
+    } else if (chunkRes.status === 200 || chunkRes.status === 201) {
+      const result = await chunkRes.json();
+      fileId = result.id;
+      webViewLink = result.webViewLink;
+      offset = blob.size;
+    } else {
+      throw new Error(`Upload chunk failed: ${chunkRes.status}`);
+    }
+
+    onProgress(Math.round((Math.min(offset, blob.size) / blob.size) * 100));
+  }
+
+  // Get webViewLink if not returned
+  if (fileId && !webViewLink) {
+    const info = await driveRequest(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=webViewLink`);
+    const d = await info.json();
+    webViewLink = d.webViewLink;
+  }
+
+  return { fileId, webViewLink, fileName };
+}
+
+// ─── BARCODE SCANNER (ZXing — works on all browsers including Windows Chrome) ─
+let zxingReader = null;
+
+async function initDetector() {
+  try {
+    // Wait for ZXing to load
+    if (typeof ZXing === 'undefined') {
+      await new Promise((res, rej) => {
+        let attempts = 0;
+        const iv = setInterval(() => {
+          attempts++;
+          if (typeof ZXing !== 'undefined') { clearInterval(iv); res(); }
+          if (attempts > 20) { clearInterval(iv); rej(new Error('ZXing failed to load')); }
+        }, 200);
+      });
+    }
+    zxingReader = new ZXing.BrowserMultiFormatReader();
+    return true;
+  } catch(e) { console.error('ZXing init failed:', e); return false; }
+}
+
+function startScan() {
+  const video = document.getElementById('camFeed');
+  const canvas = document.getElementById('snap');
+  const ctx = canvas.getContext('2d');
+  document.getElementById('scanLine').classList.add('running');
+
+  scanIv = setInterval(async () => {
+    if (!zxingReader || !video.videoWidth) return;
+    try {
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+      const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+      const result = zxingReader.decodeBitmap(binaryBitmap);
+      if (result && result.text) {
+        const raw = result.text.trim();
+        const now = Date.now();
+        if (raw === lastSeen.code && now - lastSeen.ts < COOLDOWN) return;
+        lastSeen = { code: raw, ts: now };
+        handleBarcode(raw);
+      }
+    } catch(e) {
+      // NotFoundException is thrown when no barcode found — normal, ignore
+    }
+  }, 300);
+}
+
+function stopScan() {
+  clearInterval(scanIv);
+  document.getElementById('scanLine').classList.remove('running');
+}
+
+function handleBarcode(raw) {
+  const type = classifyBarcode(raw);
+  if (type === 'container') {
+    if (packState === 'waiting_awb') { sealSegment(null); showToast('err','⚠ Previous package had no AWB — auto-sealed'); }
+    startPackage(raw);
+    doFlash('green');
+    showBanner(raw, 'start-banner');
+    showToast('ok', `📦 Container: ${raw}`);
+  } else if (type === 'awb') {
+    if (packState === 'waiting_awb') {
+      doFlash('red');
+      showBanner('AWB: ' + raw, 'stop-banner');
+      showToast('ok', `✅ AWB: ${raw} — sealed`);
+      sealSegment(raw);
+    } else {
+      showToast('err','⚠ Scan container label first');
+    }
+  }
+  // 'unknown' barcodes are silently ignored (e.g. 260422FSB48U4P Shopee order code)
+}
+
+// ─── PACKAGE LIFECYCLE ───────────────────────────────────────────────────────
+function startPackage(containerId) {
+  packState = 'waiting_awb';
+  currentContainer = { id: containerId, startMs: nowMs() };
+  setStateCard('packing','▶ PACKING', containerId,'Now pack the item, then scan the AWB label (GK-11-…) to finish.');
+  document.getElementById('frameBox').className = 'frame-box got-start';
+  document.getElementById('scanLine').classList.add('yellow');
+  document.getElementById('packChip').style.display = 'flex';
+  setInstr('pack'); setPill('packing','PACKING');
+}
+
+function sealSegment(awbId) {
+  if (!currentContainer) return;
+  const seg = {
+    id: Date.now() + Math.random(),
+    containerId: currentContainer.id,
+    awbId: awbId || '(missing)',
+    startMs: currentContainer.startMs,
+    endMs: nowMs(),
+    status: awbId ? 'pending' : 'error',
+    driveLink: null, missingAwb: !awbId,
+    blobSnapshot: null // will be set from chunks at upload time
+  };
+  segments.push(seg);
+  currentContainer = null;
+  packState = 'idle';
+  document.getElementById('frameBox').className = 'frame-box start-ready';
+  document.getElementById('scanLine').classList.remove('yellow');
+  document.getElementById('packChip').style.display = 'none';
+  setStateCard('waiting','WAITING','','Scan next container label (BKI1-…) to start a new package.');
+  setInstr('wait'); setPill('waiting','WAITING');
+  renderSegments(); updateStats(); updateUploadBar();
+}
+
+// ─── SESSION ─────────────────────────────────────────────────────────────────
+async function startSession() {
+  if (!stream) { showToast('err','No camera.'); return; }
+  if (!accessToken) { showToast('err','Sign in with Google first.'); return; }
+
+  const hasDet = await initDetector();
+  if (!hasDet) showToast('err','⚠ Use Chrome for auto-scan. Manual button available as fallback.');
+
+  chunks = [];
+  mediaRecorder = new MediaRecorder(stream, { mimeType });
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  mediaRecorder.start(500);
+
+  sessionStart = Date.now();
+  timerIv = setInterval(() => { document.getElementById('timerHud').textContent = fmtMs(nowMs()); }, 500);
+  sessionActive = true;
+
+  if (hasDet) startScan();
+
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnStop').disabled = false;
+  document.getElementById('btnManual').disabled = false;
+  document.getElementById('recChip').style.display = 'flex';
+  document.getElementById('frameBox').className = 'frame-box start-ready';
+  setInstr('wait'); setPill('waiting','WAITING');
+  setStateCard('waiting','READY','','Scan a container label (BKI1-…) to begin the first package.');
+  showToast('ok','▶ Session started');
+}
+
+function stopSession() {
+  stopScan();
+  if (packState === 'waiting_awb') { sealSegment(null); showToast('err','⚠ Last package sealed without AWB'); }
+  if (mediaRecorder) { mediaRecorder.stop(); mediaRecorder = null; }
+  clearInterval(timerIv);
+  sessionActive = false; packState = 'idle'; currentContainer = null;
+
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStop').disabled = true;
+  document.getElementById('btnManual').disabled = true;
+  document.getElementById('recChip').style.display = 'none';
+  document.getElementById('packChip').style.display = 'none';
+  document.getElementById('frameBox').className = 'frame-box';
+  setInstr('idle'); setPill('idle','IDLE');
+  setStateCard('idle','Session Ended','',`${segments.length} package(s) recorded.`);
+  renderSegments(); updateUploadBar();
+  if (segments.length > 0) showToast('ok',`✓ ${segments.length} segments ready — upload to Drive`);
+}
+
+// ─── UPLOAD ──────────────────────────────────────────────────────────────────
+async function uploadOne(segId) {
+  const s = segments.find(x => String(x.id) === String(segId));
+  if (!s || !accessToken) return;
+
+  s.status = 'uploading'; renderSegments(); setPf(segId, 5, 'Building video…');
+
+  try {
+    // Slice from recorded chunks proportionally
+    const fullBlob = new Blob(chunks, { type: mimeType });
+    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+    const date = new Date().toISOString().slice(0,10);
+    const tc1  = fmtMs(s.startMs).replace(/:/g,'-');
+    const tc2  = fmtMs(s.endMs).replace(/:/g,'-');
+    const station = cfg.station ? `_[${cfg.station}]` : '';
+    const fileName = `[${s.containerId}]_[${s.awbId}]${station}_${date}_${tc1}_to_${tc2}.${ext}`;
+
+    // Proportional byte slice
+    const sessDur = sessionStart ? Date.now() - sessionStart : 1;
+    const tb = fullBlob.size;
+    const sb = Math.max(0, Math.floor((s.startMs / sessDur) * tb));
+    const eb = Math.min(tb, Math.floor(((s.endMs || sessDur) / sessDur) * tb));
+    const sliced = fullBlob.slice(sb, eb, mimeType);
+    const blob = sliced.size > 10000 ? sliced : fullBlob;
+
+    setPf(segId, 10, 'Uploading to Drive…');
+
+    const result = await uploadToDrive(blob, fileName, (pct) => {
+      setPf(segId, 10 + Math.floor(pct * 0.9), `Uploading ${pct}%…`);
+    });
+
+    s.status = 'done'; s.driveLink = result.webViewLink;
+    showToast('ok', `✓ Uploaded: ${s.containerId}`);
+  } catch(e) {
+    s.status = 'error';
+    showToast('err', `✗ ${s.containerId}: ${e.message}`);
+  }
+
+  renderSegments(); updateStats(); updateUploadBar();
+}
+
+async function uploadAll() {
+  const pending = segments.filter(s => s.status==='pending' || s.status==='error');
+  document.getElementById('btnUploadAll').disabled = true;
+  for (const s of pending) { await uploadOne(s.id); await wait(300); }
+  document.getElementById('btnUploadAll').disabled = false;
+  updateUploadBar();
+}
+
+function copyInfo(segId) {
+  const s = segments.find(x => String(x.id) === String(segId));
+  if (!s) return;
+  const t = ['=== PACKING VIDEO CLAIM INFO ===',
+    `Container ID : ${s.containerId}`, `AWB Number   : ${s.awbId}`,
+    `Station      : ${cfg.station || '—'}`,
+    `Timecode     : ${fmtMs(s.startMs)} – ${fmtMs(s.endMs)}`,
+    `Duration     : ${fmtMs(s.endMs - s.startMs)}`,
+    `Date         : ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}`,
+    `Drive Link   : ${s.driveLink || 'Not uploaded yet'}`].join('\n');
+  navigator.clipboard.writeText(t).then(()=>showToast('ok','📋 Copied'));
+}
+
+// ─── MANUAL ──────────────────────────────────────────────────────────────────
+function openManual() { document.getElementById('manualModal').classList.add('open'); setTimeout(()=>document.getElementById('mContainer').focus(),80); }
+function closeManual() { document.getElementById('manualModal').classList.remove('open'); document.getElementById('mContainer').value=''; document.getElementById('mAwb').value=''; }
+function confirmManual() {
+  const cont = document.getElementById('mContainer').value.trim();
+  const awb  = document.getElementById('mAwb').value.trim();
+  closeManual();
+  if (cont && packState==='idle')        { startPackage(cont); doFlash('green'); showToast('ok',`⌨ Container: ${cont}`); }
+  if (awb && packState==='waiting_awb')  { doFlash('red'); sealSegment(awb); showToast('ok',`⌨ AWB: ${awb}`); }
+  if (cont && awb && packState==='idle') {
+    const ms = nowMs();
+    segments.push({ id:Date.now(), containerId:cont, awbId:awb, startMs:ms, endMs:ms+1000, status:'pending', driveLink:null });
+    renderSegments(); updateStats(); updateUploadBar();
+    showToast('ok',`⌨ Manual segment: ${cont} / ${awb}`);
+  }
+}
+
+// ─── RENDER ──────────────────────────────────────────────────────────────────
+function renderSegments() {
+  const list = document.getElementById('segList');
+  const total = segments.length + (packState==='waiting_awb' ? 1 : 0);
+  document.getElementById('segBadge').textContent = total;
+
+  if (segments.length===0 && packState==='idle') {
+    list.innerHTML = `<div class="empty-segs"><div class="ei">📦</div><p>No packages yet.<br><br><b style="color:var(--yellow)">Container label</b> (BKI1-…)<br>→ starts a segment<br><br><b style="color:var(--red)">AWB label</b> (GK-11-…)<br>→ seals &amp; uploads segment</p></div>`;
+    return;
+  }
+
+  let openCard = '';
+  if (packState==='waiting_awb' && currentContainer) {
+    openCard = `<div class="seg-card open"><div class="sc-top"><div class="sc-id">${currentContainer.id}</div><div class="sc-st open">▶ PACKING</div></div><div class="sc-awb">Waiting for AWB scan…</div><div class="sc-meta">Started ${fmtMs(currentContainer.startMs)} · ongoing</div></div>`;
+  }
+
+  const stMap = { pending:'⏳ PENDING', uploading:'↑ UPLOADING', done:'✓ SAVED', error:'✗ ERROR' };
+  const cards = [...segments].reverse().map(s => `
+    <div class="seg-card ${s.status}" id="sc-${s.id}">
+      <div class="sc-top"><div class="sc-id">${s.containerId}</div><div class="sc-st ${s.status}">${stMap[s.status]}</div></div>
+      <div class="sc-awb">${s.awbId}${s.missingAwb?' ⚠':''}</div>
+      <div class="sc-meta">${fmtMs(s.startMs)} → ${fmtMs(s.endMs)} · <span class="sc-dur">${fmtMs(s.endMs-s.startMs)}</span></div>
+      <div class="sc-acts">
+        ${s.status==='pending'               ? `<button class="sa g" onclick="uploadOne('${s.id}')">☁ UPLOAD</button>`:''}
+        ${s.status==='error'                 ? `<button class="sa g" onclick="uploadOne('${s.id}')">↺ RETRY</button>`:''}
+        ${s.status==='done' && s.driveLink   ? `<a href="${s.driveLink}" target="_blank" class="sa g">🔗 DRIVE</a>`:''}
+        <button class="sa" onclick="copyInfo('${s.id}')">📋 COPY</button>
+      </div>
+      <div class="prog ${s.status==='uploading'?'on':''}" id="prog-${s.id}"><div class="prog-fill" id="pf-${s.id}"></div></div>
+      <div class="prog-label ${s.status==='uploading'?'on':''}" id="pl-${s.id}"></div>
+    </div>`).join('');
+
+  list.innerHTML = openCard + cards;
+}
+
+function updateStats() {
+  document.getElementById('stTotal').textContent   = segments.length;
+  document.getElementById('stDone').textContent    = segments.filter(s=>s.status==='done').length;
+  document.getElementById('stPending').textContent = segments.filter(s=>s.status==='pending'||s.status==='error').length;
+}
+function updateUploadBar() {
+  document.getElementById('uploadBar').classList.toggle('on', segments.some(s=>s.status==='pending'||s.status==='error'));
+}
+
+// ─── UI HELPERS ───────────────────────────────────────────────────────────────
+function setStateCard(type, title, id, sub) {
+  document.getElementById('stateCard').className = 'state-card ' + type;
+  document.getElementById('stateLabel').textContent = type.toUpperCase();
+  document.getElementById('stateMain').textContent = title;
+  document.getElementById('stateSub').textContent = sub;
+  const idEl = document.getElementById('stateId');
+  idEl.textContent = id; idEl.style.display = id ? 'block' : 'none';
+}
+function setInstr(which) {
+  ['instrWait','instrPack','instrIdle'].forEach(id => document.getElementById(id).classList.remove('visible'));
+  const map = { wait:'instrWait', pack:'instrPack', idle:'instrIdle' };
+  if (map[which]) document.getElementById(map[which]).classList.add('visible');
+}
+function setPill(type, label) {
+  const p = document.getElementById('statusPill'); const d = document.getElementById('pdot');
+  p.className = 'pill ' + type;
+  d.className = 'pdot' + (type!=='idle' ? ' blink' : '');
+  document.getElementById('statusTxt').textContent = label;
+}
+function setChip(id, text, cls) {
+  const el = document.getElementById(id); el.textContent = text; el.className = 'hud-chip ' + (cls||'');
+}
+function doFlash(color) {
+  const el = document.getElementById(color==='green'?'flashGreen':'flashRed');
+  el.classList.add('lit'); setTimeout(()=>el.classList.remove('lit'),100);
+}
+function showBanner(text, cls) {
+  const b = document.getElementById('detBanner');
+  b.textContent = text; b.className = 'det-banner show ' + cls;
+  setTimeout(()=>b.className='det-banner', 2200);
+}
+function setPf(segId, pct, label) {
+  const b = document.getElementById(`prog-${segId}`);
+  const f = document.getElementById(`pf-${segId}`);
+  const l = document.getElementById(`pl-${segId}`);
+  if (b) b.classList.add('on'); if (f) f.style.width = pct+'%';
+  if (l && label) { l.classList.add('on'); l.textContent = label; }
+}
+function nowMs()  { return sessionStart ? Date.now()-sessionStart : 0; }
+function fmtMs(ms) {
+  if (!ms && ms!==0) return '—';
+  const s=Math.floor(Math.abs(ms)/1000);
+  return [Math.floor(s/3600),Math.floor((s%3600)/60),s%60].map(v=>String(v).padStart(2,'0')).join(':');
+}
+function wait(ms) { return new Promise(r=>setTimeout(r,ms)); }
+
+let _tt;
+function showToast(type, msg) {
+  const el=document.getElementById('toast');
+  document.getElementById('tIco').textContent = type==='ok'?'✓':type==='err'?'✗':'ℹ';
+  document.getElementById('tMsg').textContent = msg;
+  el.className = 'toast show ' + type;
+  clearTimeout(_tt); _tt=setTimeout(()=>el.classList.remove('show'),3500);
+}
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+setInstr('idle');
+if (cfg.clientId) {
+  // Wait for GSI to load then init
+  window.addEventListener('load', () => { setTimeout(initGoogleAuth, 1000); });
+}
+// Show config modal on first run if no client ID
+if (!cfg.clientId) { setTimeout(openConfig, 800); }
+</script>
+</body>
+</html>
